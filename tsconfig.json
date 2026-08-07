@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023"],
+    /* Node globals only — no "dom". Nothing in this library touches a
+     * browser, and leaving the DOM lib out means an accidental `document`
+     * or `fetch` in library code fails to compile rather than shipping.
+     * The browser-side glue that consumes it lives in the site's src/. */
+    "types": ["node"],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+
+    /* Ship raw .ts and run it through Node's built-in type stripping
+     * (Node 22.6+) rather than compiling to dist/ — same choice as
+     * dmarcbis, same caveat before any npm release. */
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "vendor/**/*.ts"]
+}
