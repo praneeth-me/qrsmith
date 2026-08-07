@@ -8,6 +8,8 @@
 export { buildPayload } from "./lint.ts";
 export { alphanumericVariant } from "./payload/url.ts";
 export { analyseLogoCoverage, encodePlan } from "./encode.ts";
+export { rasterise } from "./raster.ts";
+export type { RasterOptions, RgbaImage } from "./raster.ts";
 export type { EncodeOptions, EncodedResult } from "./encode.ts";
 export {
   ECC_LABELS,
