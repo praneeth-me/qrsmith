@@ -7,6 +7,23 @@
  */
 export { buildPayload } from "./lint.ts";
 export { alphanumericVariant } from "./payload/url.ts";
+export { analyseLogoCoverage, encodePlan } from "./encode.ts";
+export type { EncodeOptions, EncodedResult } from "./encode.ts";
+export {
+  ECC_LABELS,
+  ECC_NOMINAL_FRACTION,
+  computeEccBudget,
+  dataModuleCount,
+} from "./ecc.ts";
+export type { EccBudget } from "./ecc.ts";
+export {
+  PRINT_PROCESS_LABELS,
+  QUIET_ZONE_MODULES,
+  minWidthForDistance,
+  moduleCountForVersion,
+  moduleFloor,
+  resolveGeometry,
+} from "./geometry.ts";
 
 export type {
   BuiltPayload,
