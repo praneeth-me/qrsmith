@@ -109,6 +109,35 @@ describe("wifi escaping", () => {
     assert.equal(text, 'WIFI:T:WPA;S:"deadbeef";P:hunter22;;');
     assert.ok(codes(diagnostics).includes("wifi-hex-quoted"));
   });
+
+  // The quoting convention is only worth paying where the ambiguity is real.
+  // A numeric password is one of the commonest shapes there is, and handing
+  // a scanner `"12345678"` when a parser does not strip quotes means nobody
+  // can join.
+  it("does not quote a password at a length no hex key can be", () => {
+    assert.equal(
+      wifi({ password: "12345678" }).text,
+      "WIFI:T:WPA;S:Net;P:12345678;;"
+    );
+    assert.equal(
+      wifi({ password: "0123456789abcdef" }).text,
+      "WIFI:T:WPA;S:Net;P:0123456789abcdef;;"
+    );
+  });
+
+  it("quotes a password only at a genuine hex key length", () => {
+    // 64 hex digits is a raw WPA PMK, which really could be read as bytes.
+    const pmk = "a".repeat(64);
+    assert.equal(
+      wifi({ password: pmk }).text,
+      `WIFI:T:WPA;S:Net;P:"${pmk}";;`
+    );
+    // 10 and 26 are the WEP hex key lengths.
+    assert.equal(
+      wifi({ security: "WEP", password: "0123456789" }).text,
+      'WIFI:T:WEP;S:Net;P:"0123456789";;'
+    );
+  });
 });
 
 describe("wifi compatibility rules", () => {
@@ -127,13 +156,43 @@ describe("wifi compatibility rules", () => {
     assert.match(diagnostic.message, /WPA3/);
   });
 
-  it("emits R:1 only for WPA3-only networks on WPA", () => {
-    assert.match(wifi({ wpa3Only: true }).text, /;R:1;;$/);
+  it("emits R:1 in the position the specification puts it", () => {
+    // WPA3 spec §7.1 grammar is T, R, S, H, I, P, K — `R:` sits immediately
+    // after the type, before the SSID, and the spec's own example reads
+    // WIFI:T:WPA;R:1;S:MyNet;P:MyPassword;;. Most parsers scan for prefixes
+    // and would accept any order; there is no reason to emit a different one.
+    assert.equal(
+      wifi({ wpa3Only: true, ssid: "Net", password: "hunter22" }).text,
+      "WIFI:T:WPA;R:1;S:Net;P:hunter22;;"
+    );
     assert.ok(!wifi({ wpa3Only: false }).text.includes("R:1"));
 
-    const wrong = wifi({ wpa3Only: true, security: "WEP" });
+    const wrong = wifi({ wpa3Only: true, security: "WEP", password: "abcde" });
     assert.ok(!wrong.text.includes("R:1"));
     assert.ok(codes(wrong.diagnostics).includes("wifi-wpa3only-ignored"));
+  });
+
+  it("orders every field as the grammar specifies", () => {
+    // T, R, S, H, P — with the hidden flag between the SSID and the password.
+    assert.equal(
+      wifi({
+        ssid: "Net",
+        password: "hunter22",
+        hidden: true,
+        wpa3Only: true,
+      }).text,
+      "WIFI:T:WPA;R:1;S:Net;H:true;P:hunter22;;"
+    );
+  });
+
+  it("notes what WPA3-only costs in device support", () => {
+    const diagnostic = find(
+      wifi({ wpa3Only: true }).diagnostics,
+      "wifi-wpa3-only-compat"
+    );
+    assert.ok(diagnostic, "expected a compatibility note");
+    assert.match(diagnostic.message, /Android 10/);
+    assert.match(diagnostic.message, /iOS 13/);
   });
 
   it("treats an open network with a password as a contradiction", () => {
@@ -205,6 +264,105 @@ describe("wifi compatibility rules", () => {
       find(wifi({ ssid: "" }).diagnostics, "wifi-empty-ssid")?.severity,
       "error"
     );
+  });
+});
+
+describe("wifi password rules", () => {
+  // 802.11 puts hard bounds on a PSK: 8–63 characters, or exactly 64 hex
+  // digits for a raw PMK. Outside that an access point cannot be configured
+  // with it, so the code is broken rather than merely weak.
+  it("rejects a PSK outside the 8–63 character range", () => {
+    assert.equal(
+      find(wifi({ password: "short" }).diagnostics, "wifi-password-too-short")
+        ?.severity,
+      "error"
+    );
+    assert.equal(
+      find(
+        wifi({ password: "x".repeat(64) }).diagnostics,
+        "wifi-password-too-long"
+      )?.severity,
+      "error"
+    );
+    // Exactly on the boundaries: both valid.
+    for (const length of [8, 63]) {
+      const at = wifi({ password: "aB3$" + "x".repeat(length - 4) });
+      assert.ok(
+        !codes(at.diagnostics).some(c => c.startsWith("wifi-password-too")),
+        `${length} characters should be accepted`
+      );
+    }
+  });
+
+  it("accepts a raw 64-digit hex PMK, which is longer than the limit", () => {
+    const pmk = "a".repeat(64);
+    assert.ok(
+      !codes(wifi({ password: pmk }).diagnostics).some(c =>
+        c.startsWith("wifi-password-too")
+      )
+    );
+  });
+
+  it("checks WEP key lengths against the two the standard allows", () => {
+    // Note "abcde": five ASCII characters that happen to all be hex digits.
+    // Testing the hex interpretation first and stopping there rejects a key
+    // every access point accepts.
+    for (const good of [
+      "abcde",
+      "s3cr!",
+      "abcdefghijklm",
+      "0123456789",
+      "0123456789abcdef0123456789",
+    ]) {
+      assert.ok(
+        !codes(
+          wifi({ security: "WEP", password: good }).diagnostics
+        ).includes("wifi-wep-key-length"),
+        `${good.length} should be a valid WEP key`
+      );
+    }
+    assert.equal(
+      find(
+        wifi({ security: "WEP", password: "abcdefg" }).diagnostics,
+        "wifi-wep-key-length"
+      )?.severity,
+      "error"
+    );
+  });
+
+  it("warns about passwords that fall to an offline attack", () => {
+    for (const weak of ["password", "12345678", "aaaabbbb"]) {
+      assert.ok(
+        codes(wifi({ password: weak }).diagnostics).includes(
+          "wifi-password-weak"
+        ),
+        `${weak} should be flagged`
+      );
+    }
+    // A long passphrase of unrelated words is the thing being recommended,
+    // so it must not itself trip the warning.
+    assert.ok(
+      !codes(
+        wifi({ password: "correct-horse-battery-staple" }).diagnostics
+      ).includes("wifi-password-weak")
+    );
+  });
+
+  it("explains why length is what matters", () => {
+    const diagnostic = find(
+      wifi({ password: "abc12345" }).diagnostics,
+      "wifi-password-weak"
+    );
+    assert.ok(diagnostic);
+    assert.match(diagnostic.message, /offline/i);
+  });
+
+  it("warns that an open network encrypts nothing", () => {
+    const open = wifi({ security: "nopass", password: "" });
+    const diagnostic = find(open.diagnostics, "wifi-open-network");
+    assert.ok(diagnostic);
+    assert.equal(diagnostic.severity, "warning");
+    assert.equal(open.text, "WIFI:T:nopass;S:Net;;");
   });
 });
 
