@@ -4,6 +4,7 @@ import {
   QUIET_ZONE_MODULES,
   checkGeometry,
   minWidthForDistance,
+  minimumWidthMm,
   moduleCountForVersion,
   moduleFloor,
   resolveGeometry,
@@ -99,6 +100,67 @@ describe("the 10:1 rule", () => {
     assert.ok(diagnostic);
     assert.match(diagnostic.message, /200\.0 mm/);
     assert.match(diagnostic.message, /10\.0 mm/);
+  });
+});
+
+describe("the minimum printable width", () => {
+  // This exists so a caller can PREVENT the size errors rather than report
+  // them. A UI that lets someone pick a reading distance and then complains
+  // the width no longer matches has made them fix its own inconsistency.
+  it("takes whichever constraint binds harder", () => {
+    // Small symbol, long distance: the 10:1 rule decides.
+    const far = minimumWidthMm(2, "screen", 4000);
+    assert.equal(far.mm, 400);
+    assert.equal(far.reason, "distance");
+
+    // Dense symbol, short distance, coarse process: the modules decide.
+    const coarse = minimumWidthMm(20, "engraved", 150);
+    assert.equal(coarse.reason, "process");
+    assert.equal(coarse.mm, moduleFloor("engraved") * moduleCountForVersion(20));
+  });
+
+  it("rises with a coarser process at a fixed distance", () => {
+    const widths = (["screen", "laser", "offset", "thermal", "engraved"] as const).map(
+      process => minimumWidthMm(15, process, 150).mm
+    );
+    for (let i = 1; i < widths.length; i++) {
+      assert.ok(
+        widths[i]! >= widths[i - 1]!,
+        "a coarser process must never need a narrower code"
+      );
+    }
+  });
+
+  it("rises with a denser payload at a fixed process", () => {
+    const small = minimumWidthMm(2, "offset", 150).mm;
+    const large = minimumWidthMm(30, "offset", 150).mm;
+    assert.ok(large > small);
+  });
+
+  // The whole point: a code built at this width clears both checks.
+  it("produces a geometry with no size errors, across the matrix", () => {
+    const processes = ["screen", "laser", "inkjet", "offset", "thermal", "engraved"] as const;
+    for (const process of processes) {
+      for (const distance of [150, 300, 600, 1500, 4000]) {
+        for (const version of [1, 5, 10, 20, 40]) {
+          const floor = minimumWidthMm(version, process, distance);
+          const context: PhysicalContext = {
+            scanDistanceMm: distance,
+            targetWidthMm: Math.ceil(floor.mm),
+            process,
+          };
+          const found = checkGeometry(
+            resolveGeometry(version, context),
+            context
+          ).filter(d => d.severity === "error");
+          assert.deepEqual(
+            found.map(d => d.code),
+            [],
+            `v${version} ${process} at ${distance}mm still errored`
+          );
+        }
+      }
+    }
   });
 });
 

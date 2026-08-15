@@ -52,6 +52,11 @@ Rules worth naming, because they are the reason the library exists:
   per-process module floor, quiet zone and required DPI.
 - The reverse check: whether a payload's version leaves modules too fine to
   print at the requested width.
+- `minimumWidthMm()` returns the narrowest usable width and which constraint
+  binds — the 10:1 rule or the process's module floor. Exposed so a caller
+  can prevent the size errors rather than report them: a UI that lets someone
+  pick a reading distance and then complains the width no longer matches has
+  made them fix an inconsistency it created itself.
 - Error correction reported as budget spent rather than headroom available,
   with correctable codewords counted as half the parity — a decoder does not
   know where a logo is, so damage costs two parity symbols per codeword.

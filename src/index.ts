@@ -22,10 +22,12 @@ export {
   PRINT_PROCESS_LABELS,
   QUIET_ZONE_MODULES,
   minWidthForDistance,
+  minimumWidthMm,
   moduleCountForVersion,
   moduleFloor,
   resolveGeometry,
 } from "./geometry.ts";
+export type { WidthFloor, WidthFloorReason } from "./geometry.ts";
 
 export type {
   BuiltPayload,

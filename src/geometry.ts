@@ -87,6 +87,51 @@ export function moduleFloor(process: PrintProcess): number {
   return MODULE_FLOOR_MM[process];
 }
 
+/** Why a symbol cannot be printed any narrower than it can. */
+export type WidthFloorReason = "distance" | "process";
+
+export interface WidthFloor {
+  /** The smallest width, in millimetres, that satisfies every constraint. */
+  mm: number;
+  /** Which constraint is currently binding. */
+  reason: WidthFloorReason;
+  /** The 10:1 minimum on its own. */
+  distanceMm: number;
+  /** The width at which modules reach this process's floor, on its own. */
+  processMm: number;
+}
+
+/**
+ * The narrowest this symbol can usefully be printed.
+ *
+ * Two independent constraints, whichever bites harder:
+ *
+ *  - **Reading distance.** The 10:1 rule. A choice about the world.
+ *  - **The production process.** Modules cannot go below the size the
+ *    process can hold, and how many modules there are is decided by the
+ *    payload. A longer payload therefore raises this floor.
+ *
+ * Exposed as a function rather than left implicit in the diagnostics because
+ * a caller should be able to *prevent* the problem instead of reporting it.
+ * A UI that lets someone pick a reading distance and then complains that the
+ * width no longer matches has made them fix an inconsistency it created
+ * itself; one that moves the floor has not.
+ */
+export function minimumWidthMm(
+  version: number,
+  process: PrintProcess,
+  scanDistanceMm: number
+): WidthFloor {
+  const distanceMm = minWidthForDistance(scanDistanceMm);
+  const processMm = MODULE_FLOOR_MM[process] * moduleCountForVersion(version);
+  return {
+    mm: Math.max(distanceMm, processMm),
+    reason: processMm > distanceMm ? "process" : "distance",
+    distanceMm,
+    processMm,
+  };
+}
+
 /**
  * Resolve every physical measurement for a symbol at a requested size.
  *
